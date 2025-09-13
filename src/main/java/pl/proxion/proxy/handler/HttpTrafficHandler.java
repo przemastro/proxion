@@ -21,7 +21,6 @@ public class HttpTrafficHandler extends ChannelInboundHandlerAdapter {
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (msg instanceof HttpRequest) {
             HttpRequest request = (HttpRequest) msg;
-            requestData.setLength(0);
 
             // Create new transaction
             currentTransaction = new HttpTransaction();
@@ -30,26 +29,24 @@ public class HttpTrafficHandler extends ChannelInboundHandlerAdapter {
             currentTransaction.setRequestHeaders(request.headers().toString());
 
             System.out.println("🌐 Intercepted HTTP " + request.method().name() + " " + request.uri());
-
-            requestData.append("=== HTTP REQUEST ===\n");
-            requestData.append("Method: ").append(request.method().name()).append("\n");
-            requestData.append("URI: ").append(request.uri()).append("\n");
-            requestData.append("Headers:\n").append(request.headers().toString()).append("\n");
-
-            // Dodaj do GUI od razu
-            if (mainController != null) {
-                mainController.addHttpTransaction(currentTransaction);
-            }
         }
 
-        if (msg instanceof LastHttpContent) {
-            requestData.append("=====================\n");
+        if (msg instanceof HttpContent) {
+            HttpContent content = (HttpContent) msg;
+            if (content.content().readableBytes() > 0 && currentTransaction != null) {
+                try {
+                    String requestBody = content.content().toString(CharsetUtil.UTF_8);
+                    currentTransaction.setRequestBody(requestBody);
+                } catch (Exception e) {
+                    currentTransaction.setRequestBody("[BINARY DATA - " + content.content().readableBytes() + " bytes]");
+                }
+            }
 
-            // Add to GUI if we have a transaction
-            if (currentTransaction != null && mainController != null) {
-                // Nie ustawiaj sztucznych danych, poczekaj na prawdziwą odpowiedź
-                mainController.addHttpTransaction(currentTransaction);
-                currentTransaction = null;
+            if (msg instanceof LastHttpContent) {
+                if (currentTransaction != null && mainController != null) {
+                    mainController.addHttpTransaction(currentTransaction);
+                    currentTransaction = null;
+                }
             }
         }
 

@@ -25,6 +25,7 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
     private Channel backendChannel;
     private HttpTransaction currentTransaction;
     private ChannelHandlerContext clientContext;
+    private boolean isHttpsTunnel = false;
 
     public ProxyFrontendHandler(MainController controller) {
         this.mainController = controller;
@@ -38,6 +39,8 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void handleHttpsConnection(ChannelHandlerContext ctx, HttpRequest request) {
+        System.out.println("🔐 Handling HTTPS CONNECT: " + request.uri());
+
         // Tworzymy transakcję dla połączenia HTTPS
         HttpTransaction transaction = new HttpTransaction();
         transaction.setMethod("CONNECT");
@@ -46,6 +49,7 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         transaction.setStatusCode(200);
         transaction.setResponseHeaders("HTTP/1.1 200 Connection Established");
         transaction.setResponseBody("HTTPS tunnel established");
+        transaction.setEncrypted(true);
 
         // Dodaj do kontrolera
         if (mainController != null) {
@@ -59,16 +63,27 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         );
         ctx.writeAndFlush(response);
 
-        // Usuwamy HTTP codec i traffic handler po klasie, nie po nazwie
-        ctx.pipeline().remove(HttpServerCodec.class);
-        ctx.pipeline().remove(HttpTrafficHandler.class);
+        // POPRAWIONE: Usuwamy handlery po klasie, a nie po nazwie
+        // Szukamy i usuwamy HttpServerCodec
+        ChannelPipeline pipeline = ctx.pipeline();
+        if (pipeline.get(HttpServerCodec.class) != null) {
+            pipeline.remove(HttpServerCodec.class);
+        }
+
+        // Szukamy i usuwamy HttpTrafficHandler
+        if (pipeline.get(HttpTrafficHandler.class) != null) {
+            pipeline.remove(HttpTrafficHandler.class);
+        }
 
         // Rozdzielamy host i port z URI (format: host:port)
         String[] parts = request.uri().split(":");
         final String host = parts[0];
         final int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 443;
 
-        System.out.println("🔗 Connecting to HTTPS backend: " + host + ":" + port);
+        System.out.println("🔗 Establishing HTTPS tunnel to: " + host + ":" + port);
+
+        // Oznaczamy, że to tunel HTTPS
+        isHttpsTunnel = true;
 
         // Łączymy się z docelowym serwerem
         Bootstrap bootstrap = new Bootstrap();
@@ -79,19 +94,31 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                     protected void initChannel(SocketChannel ch) throws Exception {
                         // Dodajemy SSL dla połączenia do serwera
                         ch.pipeline().addLast(sslContext.newHandler(ch.alloc(), host, port));
-                        ch.pipeline().addLast(new HttpBackendHandler(ctx.channel()));
+                        // Dla tunelu HTTPS używamy prostego przekazywania bajtów
+                        ch.pipeline().addLast(new TunnelingBackendHandler(ctx.channel()));
                     }
                 });
 
-        bootstrap.connect(host, port).addListener(new ChannelFutureListener() {
+        ChannelFuture connectFuture = bootstrap.connect(host, port);
+        connectFuture.addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) throws Exception {
                 if (future.isSuccess()) {
                     backendChannel = future.channel();
                     System.out.println("✅ HTTPS tunnel established to " + host + ":" + port);
+
+                    // Ustawiamy wzajemne przekazywanie danych
+                    ctx.channel().config().setAutoRead(true);
+                    backendChannel.config().setAutoRead(true);
                 } else {
                     System.err.println("❌ Failed to establish HTTPS tunnel: " + future.cause().getMessage());
-                    ctx.close();
+                    DefaultFullHttpResponse errorResponse = new DefaultFullHttpResponse(
+                            HttpVersion.HTTP_1_1,
+                            HttpResponseStatus.BAD_GATEWAY,
+                            Unpooled.copiedBuffer("Failed to establish HTTPS tunnel: " +
+                                    future.cause().getMessage(), CharsetUtil.UTF_8)
+                    );
+                    ctx.writeAndFlush(errorResponse).addListener(ChannelFutureListener.CLOSE);
                 }
             }
         });
@@ -123,7 +150,6 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                 // Dla względnych URL, używamy hosta z nagłówka
                 String hostHeader = request.headers().get(HttpHeaderNames.HOST);
                 if (hostHeader != null) {
-                    // Usuń port jeśli istnieje
                     if (hostHeader.contains(":")) {
                         String[] parts = hostHeader.split(":");
                         targetHost = parts[0];
@@ -133,22 +159,23 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                         targetPort = 80;
                     }
                 }
-                // Jeśli nie ma nagłówka HOST, zostawiamy domyślne wartości
                 isHttps = false;
             }
 
-            // Teraz deklarujemy jako final dla klas wewnętrznych
+            // Finalne zmienne dla klas wewnętrznych
             final String finalTargetHost = targetHost;
             final int finalTargetPort = targetPort;
             final boolean finalIsHttps = isHttps;
 
-            System.out.println("🌐 Connecting to real server: " + finalTargetHost + ":" + finalTargetPort + " (HTTPS: " + finalIsHttps + ")");
+            System.out.println("🌐 Connecting to server: " + finalTargetHost + ":" + finalTargetPort +
+                    " (HTTPS: " + finalIsHttps + ")");
 
             // Tworzymy transakcję
             final HttpTransaction transaction = new HttpTransaction();
             transaction.setMethod(request.method().name());
             transaction.setUrl(originalUri);
             transaction.setRequestHeaders(request.headers().toString());
+            transaction.setEncrypted(finalIsHttps);
 
             if (mainController != null) {
                 mainController.addHttpTransaction(transaction);
@@ -163,10 +190,11 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                         @Override
                         protected void initChannel(SocketChannel ch) throws Exception {
                             if (finalIsHttps) {
+                                // Dodajemy SSL handler dla HTTPS
                                 ch.pipeline().addLast(sslContext.newHandler(ch.alloc(), finalTargetHost, finalTargetPort));
                             }
                             ch.pipeline().addLast(new HttpClientCodec());
-                            ch.pipeline().addLast(new HttpObjectAggregator(65536));
+                            ch.pipeline().addLast(new HttpObjectAggregator(10485760)); // 10MB limit
                             ch.pipeline().addLast(new RealServerHandler(ctx.channel(), mainController, transaction));
                         }
                     });
@@ -177,18 +205,33 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                 public void operationComplete(ChannelFuture future) throws Exception {
                     if (future.isSuccess()) {
                         backendChannel = future.channel();
-                        System.out.println("✅ Connected to real server: " + finalTargetHost + ":" + finalTargetPort);
+                        System.out.println("✅ Connected to server: " + finalTargetHost + ":" + finalTargetPort);
 
                         // Przekaż oryginalne żądanie do serwera
-                        backendChannel.writeAndFlush(request);
+                        if (request instanceof FullHttpRequest) {
+                            backendChannel.writeAndFlush(((FullHttpRequest) request).retain());
+                        } else {
+                            backendChannel.writeAndFlush(request);
+                        }
                     } else {
-                        System.err.println("❌ Failed to connect to real server: " + future.cause().getMessage());
+                        System.err.println("❌ Failed to connect to server: " + future.cause().getMessage());
+
+                        // Uaktualnij transakcję o błąd
+                        if (transaction != null) {
+                            transaction.setStatusCode(502);
+                            transaction.setResponseBody("Failed to connect to server: " +
+                                    future.cause().getMessage());
+                            if (mainController != null) {
+                                mainController.addHttpTransaction(transaction);
+                            }
+                        }
 
                         // Zwróć błąd do klienta
                         DefaultFullHttpResponse errorResponse = new DefaultFullHttpResponse(
                                 HttpVersion.HTTP_1_1,
                                 HttpResponseStatus.BAD_GATEWAY,
-                                Unpooled.copiedBuffer("Failed to connect to server: " + future.cause().getMessage(), CharsetUtil.UTF_8)
+                                Unpooled.copiedBuffer("Failed to connect to server: " +
+                                        future.cause().getMessage(), CharsetUtil.UTF_8)
                         );
                         ctx.writeAndFlush(errorResponse).addListener(ChannelFutureListener.CLOSE);
                     }
@@ -196,7 +239,16 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
             });
 
         } catch (Exception e) {
-            System.err.println("❌ Error connecting to real server: " + e.getMessage());
+            System.err.println("❌ Error connecting to server: " + e.getMessage());
+
+            // Uaktualnij transakcję o błąd
+            if (currentTransaction != null) {
+                currentTransaction.setStatusCode(500);
+                currentTransaction.setResponseBody("Proxy error: " + e.getMessage());
+                if (mainController != null) {
+                    mainController.addHttpTransaction(currentTransaction);
+                }
+            }
 
             DefaultFullHttpResponse errorResponse = new DefaultFullHttpResponse(
                     HttpVersion.HTTP_1_1,
@@ -211,12 +263,23 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         System.err.println("❌ Error in ProxyFrontendHandler: " + cause.getMessage());
         cause.printStackTrace();
+
+        // Uaktualnij transakcję o błąd
+        if (currentTransaction != null) {
+            currentTransaction.setStatusCode(500);
+            currentTransaction.setResponseBody("Proxy handler error: " + cause.getMessage());
+            if (mainController != null) {
+                mainController.addHttpTransaction(currentTransaction);
+            }
+        }
+
         ctx.close();
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        if (backendChannel != null) {
+        System.out.println("🔌 Client connection closed");
+        if (backendChannel != null && backendChannel.isActive()) {
             backendChannel.close();
         }
         super.channelInactive(ctx);
@@ -230,22 +293,69 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-        System.out.println("📨 Received: " + msg.getClass().getSimpleName());
+        // Dla tunelu HTTPS, po prostu przekazujemy dane dalej
+        if (isHttpsTunnel) {
+            if (backendChannel != null && backendChannel.isActive()) {
+                backendChannel.writeAndFlush(msg);
+            }
+            return;
+        }
 
         if (msg instanceof HttpRequest) {
             HttpRequest request = (HttpRequest) msg;
-            System.out.println("🌐 HTTP " + request.method() + " " + request.uri());
+            System.out.println("📨 HTTP " + request.method() + " " + request.uri());
 
             if (request.method() == HttpMethod.CONNECT) {
-                System.out.println("🔐 HTTPS CONNECT: " + request.uri());
+                System.out.println("🔐 HTTPS CONNECT request: " + request.uri());
                 handleHttpsConnection(ctx, request);
             } else {
-                System.out.println("🌐 HTTP: " + request.uri());
+                System.out.println("🌐 HTTP request: " + request.uri());
                 connectToRealServer(ctx, request);
             }
         } else if (backendChannel != null && backendChannel.isActive()) {
             // Przekaż inne wiadomości (np. HttpContent) do backendu
             backendChannel.writeAndFlush(msg);
+        } else if (msg instanceof HttpContent) {
+            // Jeśli nie ma aktywnego backendChannel, zwolnij zasoby
+            ((HttpContent) msg).release();
+        }
+    }
+
+    // Handler dla tunelowania HTTPS (proste przekazywanie bajtów)
+    private static class TunnelingBackendHandler extends ChannelInboundHandlerAdapter {
+        private final Channel frontendChannel;
+
+        public TunnelingBackendHandler(Channel frontendChannel) {
+            this.frontendChannel = frontendChannel;
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            // Przekazujemy dane z backendu do frontendu
+            frontendChannel.writeAndFlush(msg).addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    if (future.isSuccess()) {
+                        ctx.read();
+                    } else {
+                        future.channel().close();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("🔌 HTTPS tunnel backend connection closed");
+            frontendChannel.close();
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            System.err.println("❌ Error in HTTPS tunnel: " + cause.getMessage());
+            cause.printStackTrace();
+            frontendChannel.close();
+            ctx.close();
         }
     }
 }

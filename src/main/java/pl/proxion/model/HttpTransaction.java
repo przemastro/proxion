@@ -15,9 +15,11 @@ public class HttpTransaction {
     private String responseHeaders;
     private String responseBody;
     private int statusCode;
+    private int originalStatusCode; // Nowe pole - oryginalny status code
     private boolean modified;
     private boolean intercepted;
     private String modifiedResponse;
+    private boolean isEncrypted;
 
     public HttpTransaction() {
         this.id = UUID.randomUUID().toString();
@@ -25,5 +27,7 @@ public class HttpTransaction {
         this.modified = false;
         this.intercepted = false;
         this.statusCode = 0;
+        this.originalStatusCode = 0;
+        this.isEncrypted = false;
     }
 }

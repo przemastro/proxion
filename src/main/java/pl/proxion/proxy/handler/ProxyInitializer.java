@@ -21,9 +21,9 @@ public class ProxyInitializer extends ChannelInitializer<SocketChannel> {
 
         ch.pipeline().addLast(
                 new LoggingHandler(LogLevel.INFO),
-                new HttpServerCodec(), // Ten handler nie ma nazwy
-                new HttpTrafficHandler(mainController), // Ten handler nie ma nazwy
-                new ProxyFrontendHandler(mainController)
+                new HttpServerCodec(), // HTTP codec
+                new HttpTrafficHandler(mainController), // Traffic monitor
+                new ProxyFrontendHandler(mainController) // Main proxy handler
         );
 
         System.out.println("✅ Pipeline setup complete");

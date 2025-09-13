@@ -3,6 +3,7 @@ package pl.proxion;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
@@ -26,13 +27,10 @@ public class MainApp extends Application {
             // Tworzymy kontroler
             mainController = new MainController();
 
-            // Tworzymy interfejs programowo zamiast z FXML
+            // Tworzymy interfejs programowo
             BorderPane root = createUIProgrammatically();
 
-            // Ustawiamy kontroler
-            setupController(mainController, root);
-
-            Scene scene = new Scene(root, 1000, 800);
+            Scene scene = new Scene(root, 1200, 900);
 
             primaryStage.setTitle("Proxion - Local Debugging Proxy");
             primaryStage.setScene(scene);
@@ -65,10 +63,11 @@ public class MainApp extends Application {
         proxyTab.setClosable(false);
 
         VBox proxyContent = new VBox(5);
+        proxyContent.setPadding(new Insets(5));
 
         // Toolbar z przyciskami i wyszukiwaniem
         HBox toolbar = new HBox(5);
-        toolbar.setPadding(new javafx.geometry.Insets(5));
+        toolbar.setPadding(new Insets(5));
 
         Button clearButton = new Button("Clear");
         Button filterButton = new Button("Filter");
@@ -79,24 +78,35 @@ public class MainApp extends Application {
         toolbar.getChildren().addAll(clearButton, filterButton, searchField);
 
         SplitPane proxySplitPane = new SplitPane();
+        proxySplitPane.setDividerPositions(0.6);
+
         TableView<pl.proxion.model.HttpTransaction> trafficTable = new TableView<>();
 
         TableColumn<pl.proxion.model.HttpTransaction, String> methodColumn = new TableColumn<>("Method");
         TableColumn<pl.proxion.model.HttpTransaction, String> urlColumn = new TableColumn<>("URL");
         TableColumn<pl.proxion.model.HttpTransaction, String> statusColumn = new TableColumn<>("Status");
+        TableColumn<pl.proxion.model.HttpTransaction, String> modifiedColumn = new TableColumn<>("Modified");
 
-        trafficTable.getColumns().addAll(methodColumn, urlColumn, statusColumn);
+        trafficTable.getColumns().addAll(methodColumn, urlColumn, statusColumn, modifiedColumn);
+        trafficTable.setPrefHeight(400);
 
         SplitPane detailsSplitPane = new SplitPane();
         detailsSplitPane.setOrientation(javafx.geometry.Orientation.VERTICAL);
+        detailsSplitPane.setDividerPositions(0.5);
 
         VBox requestBox = new VBox();
+        requestBox.setPadding(new Insets(5));
+        Label requestLabel = new Label("Request Details");
         TextArea requestDetails = new TextArea();
-        requestBox.getChildren().addAll(new Label("Request Details"), requestDetails);
+        requestDetails.setPrefHeight(200);
+        requestBox.getChildren().addAll(requestLabel, requestDetails);
 
         VBox responseBox = new VBox();
+        responseBox.setPadding(new Insets(5));
+        Label responseLabel = new Label("Response Details");
         TextArea responseDetails = new TextArea();
-        responseBox.getChildren().addAll(new Label("Response Details"), responseDetails);
+        responseDetails.setPrefHeight(200);
+        responseBox.getChildren().addAll(responseLabel, responseDetails);
 
         detailsSplitPane.getItems().addAll(requestBox, responseBox);
         proxySplitPane.getItems().addAll(trafficTable, detailsSplitPane);
@@ -109,6 +119,8 @@ public class MainApp extends Application {
         requestBuilderTab.setClosable(false);
 
         VBox requestBuilderContent = new VBox(5);
+        requestBuilderContent.setPadding(new Insets(10));
+
         HBox requestLine = new HBox(5);
         ComboBox<String> httpMethodComboBox = new ComboBox<>();
         httpMethodComboBox.getItems().addAll("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
@@ -144,25 +156,34 @@ public class MainApp extends Application {
         requestBodyTextArea.setPrefHeight(150);
         requestBodyTextArea.setPromptText("Enter request body (for POST/PUT/PATCH)");
 
-        Label responseLabel = new Label("Response");
+        Label responseLabelBuilder = new Label("Response");
         TextArea responseTextArea = new TextArea();
         responseTextArea.setPrefHeight(300);
 
         requestBuilderContent.getChildren().addAll(
                 requestLine, headersLabel, headersTableView, headerButtons,
-                bodyLabel, requestBodyTextArea, responseLabel, responseTextArea
+                bodyLabel, requestBodyTextArea, responseLabelBuilder, responseTextArea
         );
         requestBuilderContent.setSpacing(5);
-        requestBuilderContent.setPadding(new javafx.geometry.Insets(10));
         requestBuilderTab.setContent(requestBuilderContent);
 
-        tabPane.getTabs().addAll(proxyTab, requestBuilderTab);
+        // Zakładka Rewrite Rules - NOWA ZAKŁADKA
+        Tab rewriteTab = new Tab("Rewrite Rules");
+        rewriteTab.setClosable(false);
+
+        VBox rewriteContent = new VBox(10);
+        rewriteContent.setPadding(new Insets(10));
+        rewriteTab.setContent(rewriteContent);
+
+        // Dodaj zakładki do tabPane
+        tabPane.getTabs().addAll(proxyTab, requestBuilderTab, rewriteTab);
         mainRoot.setCenter(tabPane);
 
         // Logi na dole
         logArea = new TextArea();
         logArea.setEditable(false);
-        logArea.setPrefHeight(200);
+        logArea.setPrefHeight(150);
+        logArea.setStyle("-fx-font-family: 'Monospace'; -fx-font-size: 12px;");
         mainRoot.setBottom(logArea);
 
         // Przekaż referencje do kontrolera
@@ -176,10 +197,14 @@ public class MainApp extends Application {
         mainController.responseTextArea = responseTextArea;
         mainController.sendButton = sendButton;
         mainController.progressIndicator = progressIndicator;
-
-        // Dodaj nowe referencje
         mainController.searchField = searchField;
         mainController.filteredTrafficData = FXCollections.observableArrayList();
+
+        // Przekaż referencje do zakładek
+        mainController.mainTabPane = tabPane;
+        mainController.proxyTab = proxyTab;
+        mainController.requestBuilderTab = requestBuilderTab;
+        mainController.rewriteTab = rewriteTab;
 
         // Ustaw obsługę zdarzeń
         sendButton.setOnAction(event -> mainController.handleSendRequest());
@@ -197,12 +222,6 @@ public class MainApp extends Application {
         });
 
         return mainRoot;
-    }
-
-    private void setupController(MainController controller, BorderPane root) {
-        // Tutaj powiąż elementy UI z kontrolerem
-        // To jest uproszczone - w prawdziwej aplikacji potrzebowałbyś
-        // @FXML annotations lub ręcznego wiązania
     }
 
     private void startProxyServer() {
@@ -267,6 +286,8 @@ public class MainApp extends Application {
     private void log(String message) {
         Platform.runLater(() -> {
             logArea.appendText(message + "\n");
+            // Auto-scroll to bottom
+            logArea.setScrollTop(Double.MAX_VALUE);
         });
         System.out.println(message);
     }
