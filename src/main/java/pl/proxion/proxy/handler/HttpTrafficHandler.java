@@ -42,20 +42,14 @@ public class HttpTrafficHandler extends ChannelInboundHandlerAdapter {
             }
         }
 
-        if (msg instanceof HttpContent) {
-            HttpContent content = (HttpContent) msg;
+        if (msg instanceof LastHttpContent) {
+            requestData.append("=====================\n");
 
-            if (content.content().readableBytes() > 0) {
-                String body = content.content().toString(CharsetUtil.UTF_8);
-                requestData.append("Body: ").append(body).append("\n");
-                if (currentTransaction != null) {
-                    currentTransaction.setRequestBody(body);
-                }
-            }
-
-            if (msg instanceof LastHttpContent) {
-                requestData.append("=====================\n");
-                System.out.println("📋 Request captured:\n" + requestData.toString());
+            // Add to GUI if we have a transaction
+            if (currentTransaction != null && mainController != null) {
+                // Nie ustawiaj sztucznych danych, poczekaj na prawdziwą odpowiedź
+                mainController.addHttpTransaction(currentTransaction);
+                currentTransaction = null;
             }
         }
 

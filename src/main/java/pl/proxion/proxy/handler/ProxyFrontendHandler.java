@@ -24,6 +24,7 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
     private MainController mainController;
     private Channel backendChannel;
     private HttpTransaction currentTransaction;
+    private ChannelHandlerContext clientContext;
 
     public ProxyFrontendHandler(MainController controller) {
         this.mainController = controller;
@@ -37,6 +38,20 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void handleHttpsConnection(ChannelHandlerContext ctx, HttpRequest request) {
+        // Tworzymy transakcję dla połączenia HTTPS
+        HttpTransaction transaction = new HttpTransaction();
+        transaction.setMethod("CONNECT");
+        transaction.setUrl(request.uri());
+        transaction.setRequestHeaders(request.headers().toString());
+        transaction.setStatusCode(200);
+        transaction.setResponseHeaders("HTTP/1.1 200 Connection Established");
+        transaction.setResponseBody("HTTPS tunnel established");
+
+        // Dodaj do kontrolera
+        if (mainController != null) {
+            mainController.addHttpTransaction(transaction);
+        }
+
         // Odpowiadamy 200 OK na CONNECT
         DefaultFullHttpResponse response = new DefaultFullHttpResponse(
                 HttpVersion.HTTP_1_1,
@@ -44,14 +59,14 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         );
         ctx.writeAndFlush(response);
 
-        // Usuwamy HTTP codec i dodajemy tunneling
-        ctx.pipeline().remove("httpServerCodec");
-        ctx.pipeline().remove("httpTrafficHandler");
+        // Usuwamy HTTP codec i traffic handler po klasie, nie po nazwie
+        ctx.pipeline().remove(HttpServerCodec.class);
+        ctx.pipeline().remove(HttpTrafficHandler.class);
 
         // Rozdzielamy host i port z URI (format: host:port)
         String[] parts = request.uri().split(":");
-        String host = parts[0];
-        int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 443;
+        final String host = parts[0];
+        final int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 443;
 
         System.out.println("🔗 Connecting to HTTPS backend: " + host + ":" + port);
 
@@ -73,7 +88,7 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
             public void operationComplete(ChannelFuture future) throws Exception {
                 if (future.isSuccess()) {
                     backendChannel = future.channel();
-                    System.out.println("✅ HTTPS tunnel established");
+                    System.out.println("✅ HTTPS tunnel established to " + host + ":" + port);
                 } else {
                     System.err.println("❌ Failed to establish HTTPS tunnel: " + future.cause().getMessage());
                     ctx.close();
@@ -82,41 +97,114 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         });
     }
 
-    private void createAndSendTransaction(ChannelHandlerContext ctx, HttpRequest request, String responseBody, int statusCode) {
-        if (mainController != null) {
-            HttpTransaction transaction = new HttpTransaction();
+    private void connectToRealServer(ChannelHandlerContext ctx, HttpRequest request) {
+        this.clientContext = ctx;
+
+        try {
+            String originalUri = request.uri();
+
+            // Deklarujemy zmienne z domyślnymi wartościami
+            String targetHost = "localhost";
+            int targetPort = 80;
+            boolean isHttps = false;
+
+            // Parsuj URL
+            if (originalUri.startsWith("http://")) {
+                URI uri = new URI(originalUri);
+                targetHost = uri.getHost();
+                targetPort = uri.getPort() > 0 ? uri.getPort() : 80;
+                isHttps = false;
+            } else if (originalUri.startsWith("https://")) {
+                URI uri = new URI(originalUri);
+                targetHost = uri.getHost();
+                targetPort = uri.getPort() > 0 ? uri.getPort() : 443;
+                isHttps = true;
+            } else {
+                // Dla względnych URL, używamy hosta z nagłówka
+                String hostHeader = request.headers().get(HttpHeaderNames.HOST);
+                if (hostHeader != null) {
+                    // Usuń port jeśli istnieje
+                    if (hostHeader.contains(":")) {
+                        String[] parts = hostHeader.split(":");
+                        targetHost = parts[0];
+                        targetPort = Integer.parseInt(parts[1]);
+                    } else {
+                        targetHost = hostHeader;
+                        targetPort = 80;
+                    }
+                }
+                // Jeśli nie ma nagłówka HOST, zostawiamy domyślne wartości
+                isHttps = false;
+            }
+
+            // Teraz deklarujemy jako final dla klas wewnętrznych
+            final String finalTargetHost = targetHost;
+            final int finalTargetPort = targetPort;
+            final boolean finalIsHttps = isHttps;
+
+            System.out.println("🌐 Connecting to real server: " + finalTargetHost + ":" + finalTargetPort + " (HTTPS: " + finalIsHttps + ")");
+
+            // Tworzymy transakcję
+            final HttpTransaction transaction = new HttpTransaction();
             transaction.setMethod(request.method().name());
-            transaction.setUrl(request.uri());
+            transaction.setUrl(originalUri);
             transaction.setRequestHeaders(request.headers().toString());
-            transaction.setResponseHeaders("Content-Type: application/json");
-            transaction.setResponseBody(responseBody);
-            transaction.setStatusCode(statusCode);
 
-            mainController.addHttpTransaction(transaction);
+            if (mainController != null) {
+                mainController.addHttpTransaction(transaction);
+                currentTransaction = transaction;
+            }
+
+            // Łączymy się z rzeczywistym serwerem
+            Bootstrap bootstrap = new Bootstrap();
+            bootstrap.group(ctx.channel().eventLoop())
+                    .channel(ctx.channel().getClass())
+                    .handler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            if (finalIsHttps) {
+                                ch.pipeline().addLast(sslContext.newHandler(ch.alloc(), finalTargetHost, finalTargetPort));
+                            }
+                            ch.pipeline().addLast(new HttpClientCodec());
+                            ch.pipeline().addLast(new HttpObjectAggregator(65536));
+                            ch.pipeline().addLast(new RealServerHandler(ctx.channel(), mainController, transaction));
+                        }
+                    });
+
+            ChannelFuture future = bootstrap.connect(finalTargetHost, finalTargetPort);
+            future.addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    if (future.isSuccess()) {
+                        backendChannel = future.channel();
+                        System.out.println("✅ Connected to real server: " + finalTargetHost + ":" + finalTargetPort);
+
+                        // Przekaż oryginalne żądanie do serwera
+                        backendChannel.writeAndFlush(request);
+                    } else {
+                        System.err.println("❌ Failed to connect to real server: " + future.cause().getMessage());
+
+                        // Zwróć błąd do klienta
+                        DefaultFullHttpResponse errorResponse = new DefaultFullHttpResponse(
+                                HttpVersion.HTTP_1_1,
+                                HttpResponseStatus.BAD_GATEWAY,
+                                Unpooled.copiedBuffer("Failed to connect to server: " + future.cause().getMessage(), CharsetUtil.UTF_8)
+                        );
+                        ctx.writeAndFlush(errorResponse).addListener(ChannelFutureListener.CLOSE);
+                    }
+                }
+            });
+
+        } catch (Exception e) {
+            System.err.println("❌ Error connecting to real server: " + e.getMessage());
+
+            DefaultFullHttpResponse errorResponse = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1,
+                    HttpResponseStatus.INTERNAL_SERVER_ERROR,
+                    Unpooled.copiedBuffer("Proxy error: " + e.getMessage(), CharsetUtil.UTF_8)
+            );
+            ctx.writeAndFlush(errorResponse).addListener(ChannelFutureListener.CLOSE);
         }
-    }
-
-    private void handleHttpConnection(ChannelHandlerContext ctx, HttpRequest request, Object msg) {
-        String originalUri = request.uri();
-        System.out.println("🌐 Original URI: " + originalUri);
-
-        // Tymczasowa odpowiedź
-        String responseBody = "{\"ip\": \"127.0.0.1\", \"proxy\": \"working\", \"path\": \"" + originalUri + "\"}";
-
-        DefaultFullHttpResponse response = new DefaultFullHttpResponse(
-                HttpVersion.HTTP_1_1,
-                HttpResponseStatus.OK,
-                Unpooled.copiedBuffer(responseBody, CharsetUtil.UTF_8)
-        );
-
-        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json");
-        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, response.content().readableBytes());
-        response.headers().set(HttpHeaderNames.CONNECTION, "close");
-
-        // Dodaj transakcję do kontrolera
-        createAndSendTransaction(ctx, request, responseBody, 200);
-
-        ctx.writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
     }
 
     @Override
@@ -153,11 +241,11 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                 handleHttpsConnection(ctx, request);
             } else {
                 System.out.println("🌐 HTTP: " + request.uri());
-                handleHttpConnection(ctx, request, msg);
+                connectToRealServer(ctx, request);
             }
-            return;
+        } else if (backendChannel != null && backendChannel.isActive()) {
+            // Przekaż inne wiadomości (np. HttpContent) do backendu
+            backendChannel.writeAndFlush(msg);
         }
-
-        ctx.fireChannelRead(msg);
     }
 }
