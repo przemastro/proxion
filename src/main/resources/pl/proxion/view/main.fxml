@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<TabPane fx:id="mainTabPane" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1">
+    <tabs>
+        <Tab fx:id="proxyTab" text="Proxy Monitor">
+            <SplitPane dividerPositions="0.3">
+                <items>
+                    <TableView fx:id="trafficTable">
+                        <columns>
+                            <TableColumn text="Method" prefWidth="60"/>
+                            <TableColumn text="URL" prefWidth="300"/>
+                            <TableColumn text="Status" prefWidth="60"/>
+                        </columns>
+                    </TableView>
+                    <SplitPane orientation="VERTICAL" dividerPositions="0.5">
+                        <items>
+                            <VBox>
+                                <Label text="Request Details"/>
+                                <TextArea fx:id="requestDetails" VBox.vgrow="ALWAYS"/>
+                            </VBox>
+                            <VBox>
+                                <Label text="Response Details"/>
+                                <TextArea fx:id="responseDetails" VBox.vgrow="ALWAYS"/>
+                            </VBox>
+                        </items>
+                    </SplitPane>
+                </items>
+            </SplitPane>
+        </Tab>
+        <Tab fx:id="requestBuilderTab" text="Request Builder">
+            <VBox spacing="5">
+                <HBox spacing="5">
+                    <ComboBox fx:id="httpMethodComboBox" prefWidth="100"/>
+                    <TextField fx:id="urlTextField" HBox.hgrow="ALWAYS"/>
+                    <Button text="Send" onAction="#handleSendRequest"/>
+                </HBox>
+                <Label text="Headers"/>
+                <TableView fx:id="headersTableView" prefHeight="150">
+                    <columns>
+                        <TableColumn text="Name" prefWidth="150"/>
+                        <TableColumn text="Value" prefWidth="250"/>
+                    </columns>
+                </TableView>
+                <HBox spacing="5">
+                    <Button text="Add Header" onAction="#handleAddHeader"/>
+                    <Button text="Remove Header" onAction="#handleRemoveHeader"/>
+                </HBox>
+                <Label text="Request Body"/>
+                <TextArea fx:id="requestBodyTextArea" prefHeight="150"/>
+                <Label text="Response"/>
+                <TextArea fx:id="responseTextArea" VBox.vgrow="ALWAYS"/>
+            </VBox>
+        </Tab>
+    </tabs>
+</TabPane>
