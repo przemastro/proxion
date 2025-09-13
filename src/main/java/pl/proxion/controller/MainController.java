@@ -4,6 +4,8 @@ import javafx.application.Platform;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.collections.transformation.FilteredList;
+import javafx.collections.transformation.SortedList;
 import javafx.scene.control.*;
 import pl.proxion.model.HttpTransaction;
 import pl.proxion.model.Header;
@@ -25,6 +27,7 @@ public class MainController {
     public TextArea responseTextArea;
     public Button sendButton;
     public ProgressIndicator progressIndicator;
+    public TextField searchField;
 
     // Pola dla zakładek (nieużywane w programowym UI)
     public TabPane mainTabPane;
@@ -32,8 +35,10 @@ public class MainController {
     public Tab requestBuilderTab;
 
     private ObservableList<HttpTransaction> trafficData = FXCollections.observableArrayList();
+    public ObservableList<HttpTransaction> filteredTrafficData = FXCollections.observableArrayList();
     private ObservableList<Header> headersData = FXCollections.observableArrayList();
     private ExecutorService executorService = Executors.newCachedThreadPool();
+    private String currentFilter = "";
 
     public void initialize() {
         System.out.println("🔄 Initializing MainController...");
@@ -55,11 +60,15 @@ public class MainController {
             System.out.println("✅ Progress indicator initialized");
         }
 
+        // Inicjalizuj filtrowaną listę
+        filteredTrafficData.setAll(trafficData);
+
         System.out.println("✅ MainController fully initialized");
     }
 
     private void setupTrafficTable() {
-        trafficTable.setItems(trafficData);
+        // Używaj filtrowanej listy zamiast oryginalnej
+        trafficTable.setItems(filteredTrafficData);
 
         // Konfiguracja kolumn
         TableColumn<HttpTransaction, String> methodColumn = new TableColumn<>("Method");
@@ -202,6 +211,66 @@ public class MainController {
         }
     }
 
+    public void handleClearTraffic() {
+        trafficData.clear();
+        filteredTrafficData.clear();
+        requestDetails.clear();
+        responseDetails.clear();
+        System.out.println("🧹 Cleared all traffic data");
+    }
+
+    public void handleFilterTraffic() {
+        if (searchField != null && !searchField.getText().isEmpty()) {
+            currentFilter = searchField.getText().toLowerCase();
+            applyFilter();
+        } else {
+            // Jeśli pole wyszukiwania jest puste, pokaż wszystkie
+            filteredTrafficData.setAll(trafficData);
+        }
+    }
+
+    public void handleSearchTraffic(String searchText) {
+        currentFilter = searchText.toLowerCase();
+        applyFilter();
+    }
+
+    private void applyFilter() {
+        if (currentFilter.isEmpty()) {
+            filteredTrafficData.setAll(trafficData);
+            return;
+        }
+
+        ObservableList<HttpTransaction> filteredList = FXCollections.observableArrayList();
+
+        for (HttpTransaction transaction : trafficData) {
+            if (matchesFilter(transaction, currentFilter)) {
+                filteredList.add(transaction);
+            }
+        }
+
+        filteredTrafficData.setAll(filteredList);
+        System.out.println("🔍 Filter applied: " + filteredList.size() + " items match '" + currentFilter + "'");
+    }
+
+    private boolean matchesFilter(HttpTransaction transaction, String filter) {
+        if (transaction.getMethod() != null && transaction.getMethod().toLowerCase().contains(filter)) {
+            return true;
+        }
+        if (transaction.getUrl() != null && transaction.getUrl().toLowerCase().contains(filter)) {
+            return true;
+        }
+        if (transaction.getRequestHeaders() != null && transaction.getRequestHeaders().toLowerCase().contains(filter)) {
+            return true;
+        }
+        if (transaction.getRequestBody() != null && transaction.getRequestBody().toLowerCase().contains(filter)) {
+            return true;
+        }
+        if (String.valueOf(transaction.getStatusCode()).contains(filter)) {
+            return true;
+        }
+        return false;
+    }
+
     public void handleModifyResponse() {
         HttpTransaction selected = trafficTable.getSelectionModel().getSelectedItem();
         if (selected != null) {
@@ -222,7 +291,17 @@ public class MainController {
     public void addHttpTransaction(HttpTransaction transaction) {
         Platform.runLater(() -> {
             trafficData.add(transaction);
+
+            // Zastosuj aktualny filtr do nowej transakcji
+            if (currentFilter.isEmpty() || matchesFilter(transaction, currentFilter)) {
+                filteredTrafficData.add(transaction);
+            }
+
             System.out.println("📥 Added HTTP transaction: " + transaction.getMethod() + " " + transaction.getUrl());
+
+            // Auto-select the new transaction
+            trafficTable.getSelectionModel().select(transaction);
+            displayTransactionDetails(transaction);
         });
     }
 

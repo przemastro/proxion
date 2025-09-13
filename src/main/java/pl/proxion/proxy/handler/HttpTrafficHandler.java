@@ -2,11 +2,7 @@ package pl.proxion.proxy.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.HttpContent;
-import io.netty.handler.codec.http.HttpObject;
-import io.netty.handler.codec.http.HttpRequest;
-import io.netty.handler.codec.http.LastHttpContent;
+import io.netty.handler.codec.http.*;
 import io.netty.util.CharsetUtil;
 import pl.proxion.controller.MainController;
 import pl.proxion.model.HttpTransaction;
@@ -33,12 +29,17 @@ public class HttpTrafficHandler extends ChannelInboundHandlerAdapter {
             currentTransaction.setUrl(request.uri());
             currentTransaction.setRequestHeaders(request.headers().toString());
 
+            System.out.println("🌐 Intercepted HTTP " + request.method().name() + " " + request.uri());
+
             requestData.append("=== HTTP REQUEST ===\n");
             requestData.append("Method: ").append(request.method().name()).append("\n");
             requestData.append("URI: ").append(request.uri()).append("\n");
             requestData.append("Headers:\n").append(request.headers().toString()).append("\n");
 
-            System.out.println(requestData.toString());
+            // Dodaj do GUI od razu
+            if (mainController != null) {
+                mainController.addHttpTransaction(currentTransaction);
+            }
         }
 
         if (msg instanceof HttpContent) {
@@ -50,18 +51,11 @@ public class HttpTrafficHandler extends ChannelInboundHandlerAdapter {
                 if (currentTransaction != null) {
                     currentTransaction.setRequestBody(body);
                 }
-                System.out.println("Body: " + body);
             }
 
             if (msg instanceof LastHttpContent) {
                 requestData.append("=====================\n");
-                System.out.println("=====================");
-
-                // Add to GUI if we have a transaction
-                if (currentTransaction != null && mainController != null) {
-                    mainController.addHttpTransaction(currentTransaction);
-                    currentTransaction = null;
-                }
+                System.out.println("📋 Request captured:\n" + requestData.toString());
             }
         }
 

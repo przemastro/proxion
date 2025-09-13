@@ -2,6 +2,7 @@ package pl.proxion;
 
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
@@ -9,9 +10,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import pl.proxion.controller.MainController;
-import pl.proxion.model.Header;
-import pl.proxion.model.HttpTransaction;
 import pl.proxion.proxy.ProxyServer;
+
+import java.net.InetAddress;
 
 public class MainApp extends Application {
 
@@ -63,6 +64,20 @@ public class MainApp extends Application {
         Tab proxyTab = new Tab("Proxy Monitor");
         proxyTab.setClosable(false);
 
+        VBox proxyContent = new VBox(5);
+
+        // Toolbar z przyciskami i wyszukiwaniem
+        HBox toolbar = new HBox(5);
+        toolbar.setPadding(new javafx.geometry.Insets(5));
+
+        Button clearButton = new Button("Clear");
+        Button filterButton = new Button("Filter");
+        TextField searchField = new TextField();
+        searchField.setPromptText("Search requests...");
+        searchField.setPrefWidth(200);
+
+        toolbar.getChildren().addAll(clearButton, filterButton, searchField);
+
         SplitPane proxySplitPane = new SplitPane();
         TableView<pl.proxion.model.HttpTransaction> trafficTable = new TableView<>();
 
@@ -85,7 +100,9 @@ public class MainApp extends Application {
 
         detailsSplitPane.getItems().addAll(requestBox, responseBox);
         proxySplitPane.getItems().addAll(trafficTable, detailsSplitPane);
-        proxyTab.setContent(proxySplitPane);
+
+        proxyContent.getChildren().addAll(toolbar, proxySplitPane);
+        proxyTab.setContent(proxyContent);
 
         // Zakładka Request Builder
         Tab requestBuilderTab = new Tab("Request Builder");
@@ -160,10 +177,19 @@ public class MainApp extends Application {
         mainController.sendButton = sendButton;
         mainController.progressIndicator = progressIndicator;
 
+        // Dodaj nowe referencje
+        mainController.searchField = searchField;
+        mainController.filteredTrafficData = FXCollections.observableArrayList();
+
         // Ustaw obsługę zdarzeń
         sendButton.setOnAction(event -> mainController.handleSendRequest());
         addHeaderButton.setOnAction(event -> mainController.handleAddHeader());
         removeHeaderButton.setOnAction(event -> mainController.handleRemoveHeader());
+        clearButton.setOnAction(event -> mainController.handleClearTraffic());
+        filterButton.setOnAction(event -> mainController.handleFilterTraffic());
+        searchField.textProperty().addListener((observable, oldValue, newValue) -> {
+            mainController.handleSearchTraffic(newValue);
+        });
 
         // Inicjalizuj kontroler
         Platform.runLater(() -> {
@@ -185,17 +211,56 @@ public class MainApp extends Application {
             proxyServer = new ProxyServer(8888, mainController);
 
             log("🌐 Starting proxy server...");
-            proxyServer.start();
 
-            log("✅ Proxy server started successfully on port 8888");
-            log("📱 Configure your device to use this computer's IP as proxy");
-            log("   with port 8888 to intercept traffic");
+            // Uruchom serwer w osobnym wątku
+            new Thread(() -> {
+                try {
+                    proxyServer.start();
+                    log("✅ Proxy server started successfully on port 8888");
+
+                    // Wyświetl instrukcje konfiguracji
+                    Platform.runLater(() -> {
+                        showConfigurationInstructions();
+                    });
+
+                } catch (Exception e) {
+                    Platform.runLater(() -> {
+                        log("❌ ERROR starting proxy server: " + e.getMessage());
+                        e.printStackTrace();
+                    });
+                }
+            }).start();
 
         } catch (Exception e) {
             Platform.runLater(() -> {
-                log("❌ ERROR starting proxy server: " + e.getMessage());
+                log("❌ ERROR initializing proxy server: " + e.getMessage());
                 e.printStackTrace();
             });
+        }
+    }
+
+    private void showConfigurationInstructions() {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Proxy Configuration");
+        alert.setHeaderText("📱 Configure Your Mobile Device");
+        alert.setContentText(
+                "To monitor mobile app traffic:\n\n" +
+                        "1. Connect your mobile device to the same WiFi as this computer\n" +
+                        "2. Go to WiFi settings on your mobile device\n" +
+                        "3. Configure proxy:\n" +
+                        "   - Server: " + getLocalIP() + "\n" +
+                        "   - Port: 8888\n" +
+                        "4. Save settings and restart your app\n\n" +
+                        "Traffic will appear in the Proxy Monitor tab"
+        );
+        alert.showAndWait();
+    }
+
+    private String getLocalIP() {
+        try {
+            return InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception e) {
+            return "YOUR_COMPUTER_IP";
         }
     }
 

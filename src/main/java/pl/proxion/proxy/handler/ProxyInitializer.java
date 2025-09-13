@@ -17,13 +17,15 @@ public class ProxyInitializer extends ChannelInitializer<SocketChannel> {
 
     @Override
     public void initChannel(SocketChannel ch) {
-        System.out.println("🔌 Initializing new channel...");
+        System.out.println("🔌 New connection from: " + ch.remoteAddress());
 
-        // Najpierw dodajemy handler do rozpoznawania typu połączenia
         ch.pipeline().addLast(
                 new LoggingHandler(LogLevel.INFO),
                 new HttpServerCodec(),
-                new ProxyFrontendHandler(mainController) // Ten handler będzie decydował o dalszym routingu
+                new HttpTrafficHandler(mainController), // Dodaj handler do przechwytywania ruchu
+                new ProxyFrontendHandler(mainController)
         );
+
+        System.out.println("✅ Pipeline setup complete");
     }
 }
