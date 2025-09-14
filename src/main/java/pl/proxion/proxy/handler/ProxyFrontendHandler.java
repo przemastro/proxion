@@ -63,16 +63,16 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         );
         ctx.writeAndFlush(response);
 
-        // POPRAWIONE: Usuwamy handlery po klasie, a nie po nazwie
-        // Szukamy i usuwamy HttpServerCodec
+        // Usuwamy handlery HTTP, bo teraz będziemy przekazywać surowe bajty
         ChannelPipeline pipeline = ctx.pipeline();
         if (pipeline.get(HttpServerCodec.class) != null) {
             pipeline.remove(HttpServerCodec.class);
         }
-
-        // Szukamy i usuwamy HttpTrafficHandler
         if (pipeline.get(HttpTrafficHandler.class) != null) {
             pipeline.remove(HttpTrafficHandler.class);
+        }
+        if (pipeline.get(ProxyFrontendHandler.class) != null) {
+            pipeline.remove(ProxyFrontendHandler.class);
         }
 
         // Rozdzielamy host i port z URI (format: host:port)
@@ -94,7 +94,7 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                     protected void initChannel(SocketChannel ch) throws Exception {
                         // Dodajemy SSL dla połączenia do serwera
                         ch.pipeline().addLast(sslContext.newHandler(ch.alloc(), host, port));
-                        // Dla tunelu HTTPS używamy prostego przekazywania bajtów
+                        // Handler do przekazywania danych przez tunel
                         ch.pipeline().addLast(new TunnelingBackendHandler(ctx.channel()));
                     }
                 });
@@ -106,6 +106,9 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
                 if (future.isSuccess()) {
                     backendChannel = future.channel();
                     System.out.println("✅ HTTPS tunnel established to " + host + ":" + port);
+
+                    // Dodajemy handler do przekazywania danych od klienta do serwera
+                    ctx.pipeline().addLast(new TunnelingFrontendHandler(backendChannel));
 
                     // Ustawiamy wzajemne przekazywanie danych
                     ctx.channel().config().setAutoRead(true);
@@ -321,7 +324,49 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
-    // Handler dla tunelowania HTTPS (proste przekazywanie bajtów)
+    // Handler dla tunelowania HTTPS - przekazywanie od klienta do serwera
+    private static class TunnelingFrontendHandler extends ChannelInboundHandlerAdapter {
+        private final Channel backendChannel;
+
+        public TunnelingFrontendHandler(Channel backendChannel) {
+            this.backendChannel = backendChannel;
+        }
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            // Przekazujemy dane z frontendu do backendu
+            backendChannel.writeAndFlush(msg).addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    if (future.isSuccess()) {
+                        ctx.read();
+                    } else {
+                        future.channel().close();
+                    }
+                }
+            });
+        }
+
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+            System.out.println("🔌 HTTPS tunnel frontend connection closed");
+            if (backendChannel != null && backendChannel.isActive()) {
+                backendChannel.close();
+            }
+        }
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+            System.err.println("❌ Error in HTTPS tunnel frontend: " + cause.getMessage());
+            cause.printStackTrace();
+            if (backendChannel != null && backendChannel.isActive()) {
+                backendChannel.close();
+            }
+            ctx.close();
+        }
+    }
+
+    // Handler dla tunelowania HTTPS - przekazywanie od serwera do klienta
     private static class TunnelingBackendHandler extends ChannelInboundHandlerAdapter {
         private final Channel frontendChannel;
 
@@ -352,7 +397,7 @@ public class ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-            System.err.println("❌ Error in HTTPS tunnel: " + cause.getMessage());
+            System.err.println("❌ Error in HTTPS tunnel backend: " + cause.getMessage());
             cause.printStackTrace();
             frontendChannel.close();
             ctx.close();
