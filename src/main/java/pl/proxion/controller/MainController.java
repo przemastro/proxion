@@ -39,12 +39,21 @@ public class MainController {
     public Tab proxyTab;
     public Tab requestBuilderTab;
     public Tab rewriteTab;
-    public Tab collectionsTab;
     public TreeView<RequestItem> collectionsTreeView;
     public ComboBox<SavedRequest> historyComboBox;
     public Button saveRequestButton;
     public Button newCollectionButton;
     public Button deleteCollectionButton;
+    public ComboBox<String> authTypeComboBox;
+    public TextField authKeyField;
+    public TextField authValueField;
+    public TextField authTokenField;
+    public TextField authUsernameField;
+    public TextField authPasswordField;
+    public VBox authBasicPanel;
+    public VBox authBearerPanel;
+    public VBox authApiKeyPanel;
+    public Accordion authAccordion;
 
     private ObservableList<HttpTransaction> trafficData = FXCollections.observableArrayList();
     public ObservableList<HttpTransaction> filteredTrafficData = FXCollections.observableArrayList();
@@ -75,11 +84,6 @@ public class MainController {
             System.out.println("✅ Rewrite rules initialized");
         }
 
-        if (collectionsTreeView != null) {
-            setupCollectionsTab();
-            System.out.println("✅ Collections tab initialized");
-        }
-
         if (progressIndicator != null) {
             progressIndicator.setVisible(false);
             System.out.println("✅ Progress indicator initialized");
@@ -90,54 +94,13 @@ public class MainController {
         System.out.println("✅ MainController fully initialized");
     }
 
-    private void setupCollectionsTab() {
-        TreeItem<RequestItem> rootItem = new TreeItem<>(new RequestCollection("Collections"));
-        rootItem.setExpanded(true);
-        collectionsTreeView.setRoot(rootItem);
-        collectionsTreeView.setShowRoot(true);
-
-        collectionsTreeView.setCellFactory(param -> new TreeCell<RequestItem>() {
-            @Override
-            protected void updateItem(RequestItem item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    setGraphic(null);
-                } else {
-                    setText(item.getName());
-                    if (item instanceof RequestCollection) {
-                        setGraphic(new Label("📁"));
-                    } else if (item instanceof SavedRequest) {
-                        setGraphic(new Label("📄"));
-                    }
-                }
-            }
-        });
-
-        collectionsTreeView.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
-            if (newVal != null && newVal.getValue() instanceof SavedRequest) {
-                loadSavedRequest((SavedRequest) newVal.getValue());
-            }
-        });
-
-        addExampleCollections();
-    }
-
-    private void addExampleCollections() {
-        RequestCollection exampleCollection = new RequestCollection("Example API");
-        exampleCollection.addRequest(new SavedRequest("GET Users", "GET", "https://jsonplaceholder.typicode.com/users", ""));
-        exampleCollection.addRequest(new SavedRequest("POST User", "POST", "https://jsonplaceholder.typicode.com/users", "{\"name\": \"John\", \"email\": \"john@example.com\"}"));
-
-        TreeItem<RequestItem> collectionItem = new TreeItem<>(exampleCollection);
-        collectionsTreeView.getRoot().getChildren().add(collectionItem);
-        collections.add(exampleCollection);
-    }
-
     private void setupRequestBuilderTab() {
         httpMethodComboBox.getItems().addAll("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
         httpMethodComboBox.getSelectionModel().selectFirst();
 
         setupHeadersTable();
+        setupAuthPanel();
+        setupCollectionsTree();
 
         if (historyComboBox != null) {
             historyComboBox.setItems(requestHistory);
@@ -165,6 +128,14 @@ public class MainController {
             saveRequestButton.setOnAction(e -> handleSaveRequest());
         }
 
+        if (newCollectionButton != null) {
+            newCollectionButton.setOnAction(e -> handleNewCollection());
+        }
+
+        if (deleteCollectionButton != null) {
+            deleteCollectionButton.setOnAction(e -> handleDeleteCollection());
+        }
+
         if (copyResponseButton != null) {
             copyResponseButton.setOnAction(e -> handleCopyResponse());
         }
@@ -176,6 +147,143 @@ public class MainController {
         if (responseTimeLabel != null) {
             responseTimeLabel.setVisible(false);
         }
+    }
+
+    private void setupAuthPanel() {
+        if (authTypeComboBox != null) {
+            authTypeComboBox.getItems().addAll("No Auth", "Bearer Token", "Basic Auth", "API Key");
+            authTypeComboBox.getSelectionModel().selectFirst();
+            authTypeComboBox.setOnAction(e -> handleAuthTypeChange());
+        }
+
+        if (authAccordion != null) {
+            authAccordion.setExpandedPane(null);
+        }
+    }
+
+    public void handleAuthTypeChange() {
+        if (authTypeComboBox == null) return;
+
+        String authType = authTypeComboBox.getValue();
+        if (authType == null) return;
+
+        if (authBasicPanel != null) authBasicPanel.setVisible(false);
+        if (authBearerPanel != null) authBearerPanel.setVisible(false);
+        if (authApiKeyPanel != null) authApiKeyPanel.setVisible(false);
+
+        switch (authType) {
+            case "Bearer Token":
+                if (authBearerPanel != null) authBearerPanel.setVisible(true);
+                break;
+            case "Basic Auth":
+                if (authBasicPanel != null) authBasicPanel.setVisible(true);
+                break;
+            case "API Key":
+                if (authApiKeyPanel != null) authApiKeyPanel.setVisible(true);
+                break;
+        }
+
+        updateHeadersFromAuth();
+    }
+
+    private void updateHeadersFromAuth() {
+        String authType = authTypeComboBox.getValue();
+        if (authType == null) return;
+
+        removeAuthHeaders();
+
+        switch (authType) {
+            case "Bearer Token":
+                if (authTokenField != null && !authTokenField.getText().isEmpty()) {
+                    addOrUpdateHeader("Authorization", "Bearer " + authTokenField.getText());
+                }
+                break;
+            case "Basic Auth":
+                if (authUsernameField != null && authPasswordField != null &&
+                        !authUsernameField.getText().isEmpty()) {
+                    String credentials = authUsernameField.getText() + ":" + authPasswordField.getText();
+                    String encoded = java.util.Base64.getEncoder().encodeToString(credentials.getBytes());
+                    addOrUpdateHeader("Authorization", "Basic " + encoded);
+                }
+                break;
+            case "API Key":
+                if (authKeyField != null && authValueField != null &&
+                        !authKeyField.getText().isEmpty() && !authValueField.getText().isEmpty()) {
+                    addOrUpdateHeader(authKeyField.getText(), authValueField.getText());
+                }
+                break;
+        }
+    }
+
+    private void removeAuthHeaders() {
+        headersData.removeIf(header ->
+                "Authorization".equalsIgnoreCase(header.getName()) ||
+                        (authKeyField != null && authKeyField.getText().equalsIgnoreCase(header.getName()))
+        );
+    }
+
+    private void addOrUpdateHeader(String name, String value) {
+        for (Header header : headersData) {
+            if (header.getName().equalsIgnoreCase(name)) {
+                header.setValue(value);
+                headersTableView.refresh();
+                return;
+            }
+        }
+        headersData.add(new Header(name, value));
+    }
+
+    private void setupCollectionsTree() {
+        if (collectionsTreeView != null) {
+            TreeItem<RequestItem> rootItem = new TreeItem<>(new RequestCollection("Collections"));
+            rootItem.setExpanded(true);
+            collectionsTreeView.setRoot(rootItem);
+            collectionsTreeView.setShowRoot(true);
+
+            collectionsTreeView.setCellFactory(param -> new TreeCell<RequestItem>() {
+                @Override
+                protected void updateItem(RequestItem item, boolean empty) {
+                    super.updateItem(item, empty);
+                    if (empty || item == null) {
+                        setText(null);
+                        setGraphic(null);
+                    } else {
+                        setText(item.getName());
+                        if (item instanceof RequestCollection) {
+                            setGraphic(new Label("📁"));
+                        } else if (item instanceof SavedRequest) {
+                            setGraphic(new Label("📄"));
+                        }
+                    }
+                }
+            });
+
+            collectionsTreeView.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
+                if (newVal != null && newVal.getValue() instanceof SavedRequest) {
+                    loadSavedRequest((SavedRequest) newVal.getValue());
+                }
+            });
+
+            addExampleCollections();
+        }
+    }
+
+    private void addExampleCollections() {
+        RequestCollection exampleCollection = new RequestCollection("Example API");
+        SavedRequest getUsers = new SavedRequest("GET Users", "GET", "https://jsonplaceholder.typicode.com/users", "");
+        getUsers.addHeader(new Header("Accept", "application/json"));
+        exampleCollection.addRequest(getUsers);
+
+        SavedRequest postUser = new SavedRequest("POST User", "POST", "https://jsonplaceholder.typicode.com/users",
+                "{\"name\": \"John\", \"email\": \"john@example.com\"}");
+        postUser.addHeader(new Header("Content-Type", "application/json"));
+        exampleCollection.addRequest(postUser);
+
+        TreeItem<RequestItem> collectionItem = new TreeItem<>(exampleCollection);
+        if (collectionsTreeView != null) {
+            collectionsTreeView.getRoot().getChildren().add(collectionItem);
+        }
+        collections.add(exampleCollection);
     }
 
     private void setupHeadersTable() {
@@ -197,6 +305,8 @@ public class MainController {
 
     public void handleSendRequest() {
         System.out.println("🔄 Handling send request...");
+
+        updateHeadersFromAuth();
 
         final String method = httpMethodComboBox.getValue();
         String urlValue = urlTextField.getText().trim();
@@ -262,7 +372,7 @@ public class MainController {
                 method,
                 url,
                 body,
-                headers,
+                FXCollections.observableArrayList(headers),
                 result.getStatusCode(),
                 System.currentTimeMillis()
         );
@@ -290,6 +400,13 @@ public class MainController {
                     -1,
                     System.currentTimeMillis()
             );
+
+            request.setAuthType(authTypeComboBox.getValue());
+            request.setAuthToken(authTokenField != null ? authTokenField.getText() : "");
+            request.setAuthUsername(authUsernameField != null ? authUsernameField.getText() : "");
+            request.setAuthPassword(authPasswordField != null ? authPasswordField.getText() : "");
+            request.setAuthKey(authKeyField != null ? authKeyField.getText() : "");
+            request.setAuthValue(authValueField != null ? authValueField.getText() : "");
 
             TreeItem<RequestItem> selected = collectionsTreeView.getSelectionModel().getSelectedItem();
             if (selected != null && selected.getValue() instanceof RequestCollection) {
@@ -380,8 +497,14 @@ public class MainController {
             setupHeadersTable();
         }
 
-        if (mainTabPane != null && requestBuilderTab != null) {
-            mainTabPane.getSelectionModel().select(requestBuilderTab);
+        if (request.getAuthType() != null) {
+            authTypeComboBox.setValue(request.getAuthType());
+            if (authTokenField != null) authTokenField.setText(request.getAuthToken());
+            if (authUsernameField != null) authUsernameField.setText(request.getAuthUsername());
+            if (authPasswordField != null) authPasswordField.setText(request.getAuthPassword());
+            if (authKeyField != null) authKeyField.setText(request.getAuthKey());
+            if (authValueField != null) authValueField.setText(request.getAuthValue());
+            handleAuthTypeChange();
         }
 
         showAlert("Request Loaded", "Loaded request: " + request.getName());
@@ -542,6 +665,13 @@ public class MainController {
         requestBodyTextArea.clear();
         headersData.clear();
         setupHeadersTable();
+        authTypeComboBox.setValue("No Auth");
+        if (authTokenField != null) authTokenField.clear();
+        if (authUsernameField != null) authUsernameField.clear();
+        if (authPasswordField != null) authPasswordField.clear();
+        if (authKeyField != null) authKeyField.clear();
+        if (authValueField != null) authValueField.clear();
+        handleAuthTypeChange();
     }
 
     private void showAlert(String title, String message) {

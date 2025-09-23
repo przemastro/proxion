@@ -28,7 +28,7 @@ public class MainApp extends Application {
 
             BorderPane root = createUIProgrammatically();
 
-            Scene scene = new Scene(root, 1200, 900);
+            Scene scene = new Scene(root, 1400, 900);
 
             primaryStage.setTitle("Proxion - Local Debugging Proxy");
             primaryStage.setScene(scene);
@@ -110,15 +110,36 @@ public class MainApp extends Application {
         Tab requestBuilderTab = new Tab("Request Builder");
         requestBuilderTab.setClosable(false);
 
+        SplitPane requestBuilderSplitPane = new SplitPane();
+        requestBuilderSplitPane.setDividerPositions(0.25);
+
+        VBox sidebar = new VBox(10);
+        sidebar.setPadding(new Insets(10));
+        sidebar.setStyle("-fx-background-color: #f5f5f5;");
+
+        Label collectionsLabel = new Label("Collections");
+        collectionsLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+
+        TreeView<pl.proxion.model.RequestItem> collectionsTreeView = new TreeView<>();
+        collectionsTreeView.setPrefHeight(400);
+
+        HBox collectionButtons = new HBox(5);
+        Button newCollectionButton = new Button("New");
+        Button deleteCollectionButton = new Button("Delete");
+        Button saveRequestButton = new Button("Save Request");
+        collectionButtons.getChildren().addAll(newCollectionButton, deleteCollectionButton, saveRequestButton);
+        collectionButtons.setSpacing(5);
+
+        sidebar.getChildren().addAll(collectionsLabel, collectionsTreeView, collectionButtons);
+
         VBox requestBuilderContent = new VBox(5);
         requestBuilderContent.setPadding(new Insets(10));
 
         HBox historyBar = new HBox(5);
         Label historyLabel = new Label("History:");
         ComboBox<pl.proxion.model.SavedRequest> historyComboBox = new ComboBox<>();
-        historyComboBox.setPrefWidth(300);
-        Button saveRequestButton = new Button("Save Request");
-        historyBar.getChildren().addAll(historyLabel, historyComboBox, saveRequestButton);
+        historyComboBox.setPrefWidth(400);
+        historyBar.getChildren().addAll(historyLabel, historyComboBox);
         historyBar.setSpacing(5);
 
         HBox requestLine = new HBox(5);
@@ -128,7 +149,7 @@ public class MainApp extends Application {
 
         TextField urlTextField = new TextField();
         urlTextField.setPromptText("Enter URL");
-        urlTextField.setPrefWidth(300);
+        urlTextField.setPrefWidth(500);
 
         Button sendButton = new Button("Send");
         ProgressIndicator progressIndicator = new ProgressIndicator();
@@ -138,13 +159,39 @@ public class MainApp extends Application {
         requestLine.getChildren().addAll(httpMethodComboBox, urlTextField, sendButton, progressIndicator);
         requestLine.setSpacing(5);
 
+        // Create auth components
+        ComboBox<String> authTypeComboBox = new ComboBox<>();
+        authTypeComboBox.getItems().addAll("No Auth", "Bearer Token", "Basic Auth", "API Key");
+        authTypeComboBox.getSelectionModel().selectFirst();
+
+        TextField authTokenField = new TextField();
+        authTokenField.setPromptText("Enter token");
+
+        TextField authUsernameField = new TextField();
+        authUsernameField.setPromptText("Username");
+
+        TextField authPasswordField = new TextField();
+        authPasswordField.setPromptText("Password");
+
+        TextField authKeyField = new TextField();
+        authKeyField.setPromptText("Header name (e.g., X-API-Key)");
+
+        TextField authValueField = new TextField();
+        authValueField.setPromptText("API key value");
+
+        VBox authPanel = createAuthPanel(authTypeComboBox, authTokenField, authUsernameField,
+                authPasswordField, authKeyField, authValueField);
+        Accordion authAccordion = new Accordion();
+        TitledPane authPane = new TitledPane("Authorization", authPanel);
+        authAccordion.getPanes().add(authPane);
+
         Label headersLabel = new Label("Headers");
         TableView<pl.proxion.model.Header> headersTableView = new TableView<>();
+        headersTableView.setPrefHeight(150);
 
         TableColumn<pl.proxion.model.Header, String> nameColumn = new TableColumn<>("Name");
         TableColumn<pl.proxion.model.Header, String> valueColumn = new TableColumn<>("Value");
         headersTableView.getColumns().addAll(nameColumn, valueColumn);
-        headersTableView.setPrefHeight(150);
 
         HBox headerButtons = new HBox(5);
         Button addHeaderButton = new Button("Add Header");
@@ -181,28 +228,14 @@ public class MainApp extends Application {
         responseTabPane.getTabs().addAll(responseBodyTab, responseHeadersTab);
 
         requestBuilderContent.getChildren().addAll(
-                historyBar, requestLine, headersLabel, headersTableView, headerButtons,
-                bodyLabel, requestBodyTextArea, responseLabelBuilder,
-                responseStatusBar, responseTabPane
+                historyBar, requestLine, authAccordion, headersLabel,
+                headersTableView, headerButtons, bodyLabel, requestBodyTextArea,
+                responseLabelBuilder, responseStatusBar, responseTabPane
         );
         requestBuilderContent.setSpacing(5);
-        requestBuilderTab.setContent(requestBuilderContent);
 
-        Tab collectionsTab = new Tab("Collections");
-        collectionsTab.setClosable(false);
-        VBox collectionsContent = new VBox(10);
-        collectionsContent.setPadding(new Insets(10));
-
-        HBox collectionsToolbar = new HBox(10);
-        Button newCollectionButton = new Button("New Collection");
-        Button deleteCollectionButton = new Button("Delete");
-        collectionsToolbar.getChildren().addAll(newCollectionButton, deleteCollectionButton);
-
-        TreeView<pl.proxion.model.RequestItem> collectionsTreeView = new TreeView<>();
-        collectionsTreeView.setPrefHeight(600);
-
-        collectionsContent.getChildren().addAll(collectionsToolbar, collectionsTreeView);
-        collectionsTab.setContent(collectionsContent);
+        requestBuilderSplitPane.getItems().addAll(sidebar, requestBuilderContent);
+        requestBuilderTab.setContent(requestBuilderSplitPane);
 
         Tab rewriteTab = new Tab("Rewrite Rules");
         rewriteTab.setClosable(false);
@@ -210,7 +243,7 @@ public class MainApp extends Application {
         rewriteContent.setPadding(new Insets(10));
         rewriteTab.setContent(rewriteContent);
 
-        tabPane.getTabs().addAll(proxyTab, requestBuilderTab, collectionsTab, rewriteTab);
+        tabPane.getTabs().addAll(proxyTab, requestBuilderTab, rewriteTab);
         mainRoot.setCenter(tabPane);
 
         logArea = new TextArea();
@@ -219,6 +252,7 @@ public class MainApp extends Application {
         logArea.setStyle("-fx-font-family: 'Monospace'; -fx-font-size: 12px;");
         mainRoot.setBottom(logArea);
 
+        // Initialize MainController fields
         mainController.trafficTable = trafficTable;
         mainController.requestDetails = requestDetails;
         mainController.responseDetails = responseDetails;
@@ -242,13 +276,26 @@ public class MainApp extends Application {
         mainController.collectionsTreeView = collectionsTreeView;
         mainController.newCollectionButton = newCollectionButton;
         mainController.deleteCollectionButton = deleteCollectionButton;
+        mainController.authTypeComboBox = authTypeComboBox;
+        mainController.authTokenField = authTokenField;
+        mainController.authUsernameField = authUsernameField;
+        mainController.authPasswordField = authPasswordField;
+        mainController.authKeyField = authKeyField;
+        mainController.authValueField = authValueField;
+
+        // Initialize auth panels - create simple containers
+        mainController.authBasicPanel = new VBox();
+        mainController.authBearerPanel = new VBox();
+        mainController.authApiKeyPanel = new VBox();
+        mainController.authAccordion = authAccordion;
+
         mainController.filteredTrafficData = FXCollections.observableArrayList();
         mainController.mainTabPane = tabPane;
         mainController.proxyTab = proxyTab;
         mainController.requestBuilderTab = requestBuilderTab;
-        mainController.collectionsTab = collectionsTab;
         mainController.rewriteTab = rewriteTab;
 
+        // Set up event handlers
         sendButton.setOnAction(event -> mainController.handleSendRequest());
         addHeaderButton.setOnAction(event -> mainController.handleAddHeader());
         removeHeaderButton.setOnAction(event -> mainController.handleRemoveHeader());
@@ -261,11 +308,36 @@ public class MainApp extends Application {
             mainController.handleSearchTraffic(newValue);
         });
 
+        // Setup auth type change listener
+        authTypeComboBox.setOnAction(e -> mainController.handleAuthTypeChange());
+
         Platform.runLater(() -> {
             mainController.initialize();
         });
 
         return mainRoot;
+    }
+
+    private VBox createAuthPanel(ComboBox<String> authTypeComboBox, TextField authTokenField,
+                                 TextField authUsernameField, TextField authPasswordField,
+                                 TextField authKeyField, TextField authValueField) {
+        VBox authPanel = new VBox(10);
+
+        VBox bearerPanel = new VBox(5);
+        Label bearerLabel = new Label("Bearer Token:");
+        bearerPanel.getChildren().addAll(bearerLabel, authTokenField);
+
+        VBox basicPanel = new VBox(5);
+        Label basicLabel = new Label("Basic Auth:");
+        basicPanel.getChildren().addAll(basicLabel, authUsernameField, authPasswordField);
+
+        VBox apiKeyPanel = new VBox(5);
+        Label apiKeyLabel = new Label("API Key:");
+        apiKeyPanel.getChildren().addAll(apiKeyLabel, authKeyField, authValueField);
+
+        authPanel.getChildren().addAll(authTypeComboBox, bearerPanel, basicPanel, apiKeyPanel);
+
+        return authPanel;
     }
 
     private void startProxyServer() {
