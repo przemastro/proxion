@@ -53,11 +53,16 @@ public class MainApp extends Application {
 
         TabPane tabPane = new TabPane();
 
+        // Proxy Monitor Tab with Rewrite Rules sidebar
         Tab proxyTab = new Tab("Proxy Monitor");
         proxyTab.setClosable(false);
 
-        VBox proxyContent = new VBox(5);
-        proxyContent.setPadding(new Insets(5));
+        SplitPane proxySplitPane = new SplitPane();
+        proxySplitPane.setDividerPositions(0.7);
+
+        // Left side - Traffic monitor
+        VBox trafficContent = new VBox(5);
+        trafficContent.setPadding(new Insets(5));
 
         HBox toolbar = new HBox(5);
         toolbar.setPadding(new Insets(5));
@@ -69,9 +74,6 @@ public class MainApp extends Application {
         searchField.setPrefWidth(200);
 
         toolbar.getChildren().addAll(clearButton, filterButton, searchField);
-
-        SplitPane proxySplitPane = new SplitPane();
-        proxySplitPane.setDividerPositions(0.6);
 
         TableView<pl.proxion.model.HttpTransaction> trafficTable = new TableView<>();
 
@@ -102,17 +104,40 @@ public class MainApp extends Application {
         responseBox.getChildren().addAll(responseLabel, responseDetails);
 
         detailsSplitPane.getItems().addAll(requestBox, responseBox);
-        proxySplitPane.getItems().addAll(trafficTable, detailsSplitPane);
 
-        proxyContent.getChildren().addAll(toolbar, proxySplitPane);
-        proxyTab.setContent(proxyContent);
+        trafficContent.getChildren().addAll(toolbar, trafficTable, detailsSplitPane);
 
+        // Right side - Rewrite Rules
+        VBox rewriteSidebar = new VBox(10);
+        rewriteSidebar.setPadding(new Insets(10));
+        rewriteSidebar.setStyle("-fx-background-color: #f5f5f5;");
+
+        Label rewriteLabel = new Label("Rewrite Rules");
+        rewriteLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+
+        TableView<pl.proxion.model.RewriteRule> rewriteTable = new TableView<>();
+        rewriteTable.setPrefHeight(500);
+
+        HBox rewriteButtons = new HBox(5);
+        Button addRewriteRuleButton = new Button("Add");
+        Button editRewriteRuleButton = new Button("Edit");
+        Button deleteRewriteRuleButton = new Button("Delete");
+        rewriteButtons.getChildren().addAll(addRewriteRuleButton, editRewriteRuleButton, deleteRewriteRuleButton);
+        rewriteButtons.setSpacing(5);
+
+        rewriteSidebar.getChildren().addAll(rewriteLabel, rewriteTable, rewriteButtons);
+
+        proxySplitPane.getItems().addAll(trafficContent, rewriteSidebar);
+        proxyTab.setContent(proxySplitPane);
+
+        // Request Builder Tab
         Tab requestBuilderTab = new Tab("Request Builder");
         requestBuilderTab.setClosable(false);
 
         SplitPane requestBuilderSplitPane = new SplitPane();
         requestBuilderSplitPane.setDividerPositions(0.25);
 
+        // Left sidebar - Collections
         VBox sidebar = new VBox(10);
         sidebar.setPadding(new Insets(10));
         sidebar.setStyle("-fx-background-color: #f5f5f5;");
@@ -132,6 +157,7 @@ public class MainApp extends Application {
 
         sidebar.getChildren().addAll(collectionsLabel, collectionsTreeView, collectionButtons);
 
+        // Right side - Request Builder
         VBox requestBuilderContent = new VBox(5);
         requestBuilderContent.setPadding(new Insets(10));
 
@@ -185,7 +211,12 @@ public class MainApp extends Application {
         TitledPane authPane = new TitledPane("Authorization", authPanel);
         authAccordion.getPanes().add(authPane);
 
-        Label headersLabel = new Label("Headers");
+        // Headers as accordion
+        Accordion headersAccordion = new Accordion();
+        VBox headersPanel = createHeadersPanel();
+        TitledPane headersPane = new TitledPane("Headers", headersPanel);
+        headersAccordion.getPanes().add(headersPane);
+
         TableView<pl.proxion.model.Header> headersTableView = new TableView<>();
         headersTableView.setPrefHeight(150);
 
@@ -197,6 +228,8 @@ public class MainApp extends Application {
         Button addHeaderButton = new Button("Add Header");
         Button removeHeaderButton = new Button("Remove Header");
         headerButtons.getChildren().addAll(addHeaderButton, removeHeaderButton);
+
+        headersPanel.getChildren().addAll(headersTableView, headerButtons);
 
         Label bodyLabel = new Label("Request Body");
         TextArea requestBodyTextArea = new TextArea();
@@ -228,22 +261,16 @@ public class MainApp extends Application {
         responseTabPane.getTabs().addAll(responseBodyTab, responseHeadersTab);
 
         requestBuilderContent.getChildren().addAll(
-                historyBar, requestLine, authAccordion, headersLabel,
-                headersTableView, headerButtons, bodyLabel, requestBodyTextArea,
-                responseLabelBuilder, responseStatusBar, responseTabPane
+                historyBar, requestLine, authAccordion, headersAccordion,
+                bodyLabel, requestBodyTextArea, responseLabelBuilder,
+                responseStatusBar, responseTabPane
         );
         requestBuilderContent.setSpacing(5);
 
         requestBuilderSplitPane.getItems().addAll(sidebar, requestBuilderContent);
         requestBuilderTab.setContent(requestBuilderSplitPane);
 
-        Tab rewriteTab = new Tab("Rewrite Rules");
-        rewriteTab.setClosable(false);
-        VBox rewriteContent = new VBox(10);
-        rewriteContent.setPadding(new Insets(10));
-        rewriteTab.setContent(rewriteContent);
-
-        tabPane.getTabs().addAll(proxyTab, requestBuilderTab, rewriteTab);
+        tabPane.getTabs().addAll(proxyTab, requestBuilderTab);
         mainRoot.setCenter(tabPane);
 
         logArea = new TextArea();
@@ -282,18 +309,17 @@ public class MainApp extends Application {
         mainController.authPasswordField = authPasswordField;
         mainController.authKeyField = authKeyField;
         mainController.authValueField = authValueField;
-
-        // Initialize auth panels - create simple containers
-        mainController.authBasicPanel = new VBox();
-        mainController.authBearerPanel = new VBox();
-        mainController.authApiKeyPanel = new VBox();
         mainController.authAccordion = authAccordion;
+        mainController.headersAccordion = headersAccordion;
+        mainController.rewriteTable = rewriteTable;
+        mainController.addRewriteRuleButton = addRewriteRuleButton;
+        mainController.editRewriteRuleButton = editRewriteRuleButton;
+        mainController.deleteRewriteRuleButton = deleteRewriteRuleButton;
 
         mainController.filteredTrafficData = FXCollections.observableArrayList();
         mainController.mainTabPane = tabPane;
         mainController.proxyTab = proxyTab;
         mainController.requestBuilderTab = requestBuilderTab;
-        mainController.rewriteTab = rewriteTab;
 
         // Set up event handlers
         sendButton.setOnAction(event -> mainController.handleSendRequest());
@@ -304,6 +330,10 @@ public class MainApp extends Application {
         saveRequestButton.setOnAction(event -> mainController.handleSaveRequest());
         newCollectionButton.setOnAction(event -> mainController.handleNewCollection());
         deleteCollectionButton.setOnAction(event -> mainController.handleDeleteCollection());
+        addRewriteRuleButton.setOnAction(event -> mainController.getRewriteController().showAddRewriteRuleDialog());
+        editRewriteRuleButton.setOnAction(event -> mainController.getRewriteController().editSelectedRule());
+        deleteRewriteRuleButton.setOnAction(event -> mainController.getRewriteController().deleteSelectedRule());
+
         searchField.textProperty().addListener((observable, oldValue, newValue) -> {
             mainController.handleSearchTraffic(newValue);
         });
@@ -338,6 +368,11 @@ public class MainApp extends Application {
         authPanel.getChildren().addAll(authTypeComboBox, bearerPanel, basicPanel, apiKeyPanel);
 
         return authPanel;
+    }
+
+    private VBox createHeadersPanel() {
+        VBox headersPanel = new VBox(10);
+        return headersPanel;
     }
 
     private void startProxyServer() {

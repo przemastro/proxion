@@ -38,7 +38,6 @@ public class MainController {
     public TabPane mainTabPane;
     public Tab proxyTab;
     public Tab requestBuilderTab;
-    public Tab rewriteTab;
     public TreeView<RequestItem> collectionsTreeView;
     public ComboBox<SavedRequest> historyComboBox;
     public Button saveRequestButton;
@@ -50,10 +49,12 @@ public class MainController {
     public TextField authTokenField;
     public TextField authUsernameField;
     public TextField authPasswordField;
-    public VBox authBasicPanel;
-    public VBox authBearerPanel;
-    public VBox authApiKeyPanel;
     public Accordion authAccordion;
+    public Accordion headersAccordion;
+    public TableView<RewriteRule> rewriteTable;
+    public Button addRewriteRuleButton;
+    public Button editRewriteRuleButton;
+    public Button deleteRewriteRuleButton;
 
     private ObservableList<HttpTransaction> trafficData = FXCollections.observableArrayList();
     public ObservableList<HttpTransaction> filteredTrafficData = FXCollections.observableArrayList();
@@ -79,8 +80,8 @@ public class MainController {
             System.out.println("✅ Request Builder initialized");
         }
 
-        if (rewriteTab != null && rewriteTab.getContent() instanceof VBox) {
-            rewriteController.initializeRewriteTab((VBox) rewriteTab.getContent());
+        if (rewriteTable != null) {
+            setupRewriteRules();
             System.out.println("✅ Rewrite rules initialized");
         }
 
@@ -94,6 +95,43 @@ public class MainController {
         System.out.println("✅ MainController fully initialized");
     }
 
+    private void setupRewriteRules() {
+        rewriteTable.setItems(rewriteController.getRewriteRules());
+
+        TableColumn<RewriteRule, String> originalCol = new TableColumn<>("Original Status");
+        originalCol.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("originalStatusCode"));
+        originalCol.setPrefWidth(100);
+
+        TableColumn<RewriteRule, String> newCol = new TableColumn<>("New Status");
+        newCol.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("newStatusCode"));
+        newCol.setPrefWidth(100);
+
+        TableColumn<RewriteRule, String> endpointCol = new TableColumn<>("Endpoint");
+        endpointCol.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("endpointPattern"));
+        endpointCol.setPrefWidth(150);
+
+        TableColumn<RewriteRule, Boolean> enabledCol = new TableColumn<>("Enabled");
+        enabledCol.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("enabled"));
+        enabledCol.setPrefWidth(80);
+        enabledCol.setCellFactory(javafx.scene.control.cell.CheckBoxTableCell.forTableColumn(enabledCol));
+
+        TableColumn<RewriteRule, String> descCol = new TableColumn<>("Description");
+        descCol.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("description"));
+        descCol.setPrefWidth(200);
+
+        rewriteTable.getColumns().addAll(originalCol, newCol, endpointCol, enabledCol, descCol);
+
+        if (addRewriteRuleButton != null) {
+            addRewriteRuleButton.setOnAction(e -> rewriteController.showAddRewriteRuleDialog());
+        }
+        if (editRewriteRuleButton != null) {
+            editRewriteRuleButton.setOnAction(e -> rewriteController.editSelectedRule());
+        }
+        if (deleteRewriteRuleButton != null) {
+            deleteRewriteRuleButton.setOnAction(e -> rewriteController.deleteSelectedRule());
+        }
+    }
+
     private void setupRequestBuilderTab() {
         httpMethodComboBox.getItems().addAll("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
         httpMethodComboBox.getSelectionModel().selectFirst();
@@ -101,6 +139,14 @@ public class MainController {
         setupHeadersTable();
         setupAuthPanel();
         setupCollectionsTree();
+
+        if (headersAccordion != null) {
+            headersAccordion.setExpandedPane(null);
+        }
+
+        if (authAccordion != null) {
+            authAccordion.setExpandedPane(null);
+        }
 
         if (historyComboBox != null) {
             historyComboBox.setItems(requestHistory);
@@ -153,11 +199,6 @@ public class MainController {
         if (authTypeComboBox != null) {
             authTypeComboBox.getItems().addAll("No Auth", "Bearer Token", "Basic Auth", "API Key");
             authTypeComboBox.getSelectionModel().selectFirst();
-            authTypeComboBox.setOnAction(e -> handleAuthTypeChange());
-        }
-
-        if (authAccordion != null) {
-            authAccordion.setExpandedPane(null);
         }
     }
 
@@ -166,22 +207,6 @@ public class MainController {
 
         String authType = authTypeComboBox.getValue();
         if (authType == null) return;
-
-        if (authBasicPanel != null) authBasicPanel.setVisible(false);
-        if (authBearerPanel != null) authBearerPanel.setVisible(false);
-        if (authApiKeyPanel != null) authApiKeyPanel.setVisible(false);
-
-        switch (authType) {
-            case "Bearer Token":
-                if (authBearerPanel != null) authBearerPanel.setVisible(true);
-                break;
-            case "Basic Auth":
-                if (authBasicPanel != null) authBasicPanel.setVisible(true);
-                break;
-            case "API Key":
-                if (authApiKeyPanel != null) authApiKeyPanel.setVisible(true);
-                break;
-        }
 
         updateHeadersFromAuth();
     }

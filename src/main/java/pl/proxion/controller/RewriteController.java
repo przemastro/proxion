@@ -80,7 +80,7 @@ public class RewriteController {
         rewriteRules.add(new RewriteRule("301", "302", "", true, "Zmiana 301 na 302 dla wszystkich endpointów"));
     }
 
-    private void showAddRewriteRuleDialog() {
+    public void showAddRewriteRuleDialog() {
         Dialog<RewriteRule> dialog = new Dialog<>();
         dialog.setTitle("Add Rewrite Rule");
         dialog.setHeaderText("Create new status code rewrite rule");
@@ -168,7 +168,7 @@ public class RewriteController {
         }
     }
 
-    private void editSelectedRule() {
+    public void editSelectedRule() {
         RewriteRule selected = rewriteTable.getSelectionModel().getSelectedItem();
         if (selected != null) {
             showEditRewriteRuleDialog(selected);
@@ -236,7 +236,7 @@ public class RewriteController {
         });
     }
 
-    private void deleteSelectedRule() {
+    public void deleteSelectedRule() {
         RewriteRule selected = rewriteTable.getSelectionModel().getSelectedItem();
         if (selected != null) {
             rewriteRules.remove(selected);
