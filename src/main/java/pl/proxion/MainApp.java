@@ -113,6 +113,14 @@ public class MainApp extends Application {
         VBox requestBuilderContent = new VBox(5);
         requestBuilderContent.setPadding(new Insets(10));
 
+        HBox historyBar = new HBox(5);
+        Label historyLabel = new Label("History:");
+        ComboBox<pl.proxion.model.SavedRequest> historyComboBox = new ComboBox<>();
+        historyComboBox.setPrefWidth(300);
+        Button saveRequestButton = new Button("Save Request");
+        historyBar.getChildren().addAll(historyLabel, historyComboBox, saveRequestButton);
+        historyBar.setSpacing(5);
+
         HBox requestLine = new HBox(5);
         ComboBox<String> httpMethodComboBox = new ComboBox<>();
         httpMethodComboBox.getItems().addAll("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS");
@@ -173,12 +181,28 @@ public class MainApp extends Application {
         responseTabPane.getTabs().addAll(responseBodyTab, responseHeadersTab);
 
         requestBuilderContent.getChildren().addAll(
-                requestLine, headersLabel, headersTableView, headerButtons,
+                historyBar, requestLine, headersLabel, headersTableView, headerButtons,
                 bodyLabel, requestBodyTextArea, responseLabelBuilder,
                 responseStatusBar, responseTabPane
         );
         requestBuilderContent.setSpacing(5);
         requestBuilderTab.setContent(requestBuilderContent);
+
+        Tab collectionsTab = new Tab("Collections");
+        collectionsTab.setClosable(false);
+        VBox collectionsContent = new VBox(10);
+        collectionsContent.setPadding(new Insets(10));
+
+        HBox collectionsToolbar = new HBox(10);
+        Button newCollectionButton = new Button("New Collection");
+        Button deleteCollectionButton = new Button("Delete");
+        collectionsToolbar.getChildren().addAll(newCollectionButton, deleteCollectionButton);
+
+        TreeView<pl.proxion.model.RequestItem> collectionsTreeView = new TreeView<>();
+        collectionsTreeView.setPrefHeight(600);
+
+        collectionsContent.getChildren().addAll(collectionsToolbar, collectionsTreeView);
+        collectionsTab.setContent(collectionsContent);
 
         Tab rewriteTab = new Tab("Rewrite Rules");
         rewriteTab.setClosable(false);
@@ -186,7 +210,7 @@ public class MainApp extends Application {
         rewriteContent.setPadding(new Insets(10));
         rewriteTab.setContent(rewriteContent);
 
-        tabPane.getTabs().addAll(proxyTab, requestBuilderTab, rewriteTab);
+        tabPane.getTabs().addAll(proxyTab, requestBuilderTab, collectionsTab, rewriteTab);
         mainRoot.setCenter(tabPane);
 
         logArea = new TextArea();
@@ -213,10 +237,16 @@ public class MainApp extends Application {
         mainController.clearRequestButton = clearRequestButton;
         mainController.responseTabPane = responseTabPane;
         mainController.responseBodyTab = responseBodyTab;
+        mainController.historyComboBox = historyComboBox;
+        mainController.saveRequestButton = saveRequestButton;
+        mainController.collectionsTreeView = collectionsTreeView;
+        mainController.newCollectionButton = newCollectionButton;
+        mainController.deleteCollectionButton = deleteCollectionButton;
         mainController.filteredTrafficData = FXCollections.observableArrayList();
         mainController.mainTabPane = tabPane;
         mainController.proxyTab = proxyTab;
         mainController.requestBuilderTab = requestBuilderTab;
+        mainController.collectionsTab = collectionsTab;
         mainController.rewriteTab = rewriteTab;
 
         sendButton.setOnAction(event -> mainController.handleSendRequest());
@@ -224,6 +254,9 @@ public class MainApp extends Application {
         removeHeaderButton.setOnAction(event -> mainController.handleRemoveHeader());
         clearButton.setOnAction(event -> mainController.handleClearTraffic());
         filterButton.setOnAction(event -> mainController.handleFilterTraffic());
+        saveRequestButton.setOnAction(event -> mainController.handleSaveRequest());
+        newCollectionButton.setOnAction(event -> mainController.handleNewCollection());
+        deleteCollectionButton.setOnAction(event -> mainController.handleDeleteCollection());
         searchField.textProperty().addListener((observable, oldValue, newValue) -> {
             mainController.handleSearchTraffic(newValue);
         });
