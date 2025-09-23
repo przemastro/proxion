@@ -24,10 +24,8 @@ public class MainApp extends Application {
     @Override
     public void start(Stage primaryStage) {
         try {
-            // Tworzymy kontroler
             mainController = new MainController();
 
-            // Tworzymy interfejs programowo
             BorderPane root = createUIProgrammatically();
 
             Scene scene = new Scene(root, 1200, 900);
@@ -39,7 +37,6 @@ public class MainApp extends Application {
             log("🚀 Starting Proxion application...");
             log("Java version: " + System.getProperty("java.version"));
 
-            // Uruchamiamy proxy w osobnym wątku
             new Thread(this::startProxyServer).start();
         } catch (Exception e) {
             e.printStackTrace();
@@ -50,22 +47,18 @@ public class MainApp extends Application {
     private BorderPane createUIProgrammatically() {
         BorderPane mainRoot = new BorderPane();
 
-        // Nagłówek
         Label titleLabel = new Label("Proxion - Local Debugging Proxy");
         titleLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-padding: 10px;");
         mainRoot.setTop(titleLabel);
 
-        // Zakładki
         TabPane tabPane = new TabPane();
 
-        // Zakładka Proxy Monitor
         Tab proxyTab = new Tab("Proxy Monitor");
         proxyTab.setClosable(false);
 
         VBox proxyContent = new VBox(5);
         proxyContent.setPadding(new Insets(5));
 
-        // Toolbar z przyciskami i wyszukiwaniem
         HBox toolbar = new HBox(5);
         toolbar.setPadding(new Insets(5));
 
@@ -114,7 +107,6 @@ public class MainApp extends Application {
         proxyContent.getChildren().addAll(toolbar, proxySplitPane);
         proxyTab.setContent(proxyContent);
 
-        // Zakładka Request Builder
         Tab requestBuilderTab = new Tab("Request Builder");
         requestBuilderTab.setClosable(false);
 
@@ -157,36 +149,52 @@ public class MainApp extends Application {
         requestBodyTextArea.setPromptText("Enter request body (for POST/PUT/PATCH)");
 
         Label responseLabelBuilder = new Label("Response");
+
+        HBox responseStatusBar = new HBox(10);
+        Label responseStatusLabel = new Label();
+        Label responseTimeLabel = new Label();
+        responseTimeLabel.setVisible(false);
+        Button copyResponseButton = new Button("Copy Response");
+        Button clearRequestButton = new Button("Clear Request");
+        responseStatusBar.getChildren().addAll(responseStatusLabel, responseTimeLabel, copyResponseButton, clearRequestButton);
+        responseStatusBar.setSpacing(10);
+
+        TabPane responseTabPane = new TabPane();
+        Tab responseBodyTab = new Tab("Body");
         TextArea responseTextArea = new TextArea();
-        responseTextArea.setPrefHeight(300);
+        responseTextArea.setPrefHeight(250);
+        responseBodyTab.setContent(responseTextArea);
+
+        Tab responseHeadersTab = new Tab("Headers");
+        TextArea responseHeadersTextArea = new TextArea();
+        responseHeadersTextArea.setPrefHeight(250);
+        responseHeadersTab.setContent(responseHeadersTextArea);
+
+        responseTabPane.getTabs().addAll(responseBodyTab, responseHeadersTab);
 
         requestBuilderContent.getChildren().addAll(
                 requestLine, headersLabel, headersTableView, headerButtons,
-                bodyLabel, requestBodyTextArea, responseLabelBuilder, responseTextArea
+                bodyLabel, requestBodyTextArea, responseLabelBuilder,
+                responseStatusBar, responseTabPane
         );
         requestBuilderContent.setSpacing(5);
         requestBuilderTab.setContent(requestBuilderContent);
 
-        // Zakładka Rewrite Rules - NOWA ZAKŁADKA
         Tab rewriteTab = new Tab("Rewrite Rules");
         rewriteTab.setClosable(false);
-
         VBox rewriteContent = new VBox(10);
         rewriteContent.setPadding(new Insets(10));
         rewriteTab.setContent(rewriteContent);
 
-        // Dodaj zakładki do tabPane
         tabPane.getTabs().addAll(proxyTab, requestBuilderTab, rewriteTab);
         mainRoot.setCenter(tabPane);
 
-        // Logi na dole
         logArea = new TextArea();
         logArea.setEditable(false);
         logArea.setPrefHeight(150);
         logArea.setStyle("-fx-font-family: 'Monospace'; -fx-font-size: 12px;");
         mainRoot.setBottom(logArea);
 
-        // Przekaż referencje do kontrolera
         mainController.trafficTable = trafficTable;
         mainController.requestDetails = requestDetails;
         mainController.responseDetails = responseDetails;
@@ -198,15 +206,19 @@ public class MainApp extends Application {
         mainController.sendButton = sendButton;
         mainController.progressIndicator = progressIndicator;
         mainController.searchField = searchField;
+        mainController.responseHeadersTextArea = responseHeadersTextArea;
+        mainController.responseStatusLabel = responseStatusLabel;
+        mainController.responseTimeLabel = responseTimeLabel;
+        mainController.copyResponseButton = copyResponseButton;
+        mainController.clearRequestButton = clearRequestButton;
+        mainController.responseTabPane = responseTabPane;
+        mainController.responseBodyTab = responseBodyTab;
         mainController.filteredTrafficData = FXCollections.observableArrayList();
-
-        // Przekaż referencje do zakładek
         mainController.mainTabPane = tabPane;
         mainController.proxyTab = proxyTab;
         mainController.requestBuilderTab = requestBuilderTab;
         mainController.rewriteTab = rewriteTab;
 
-        // Ustaw obsługę zdarzeń
         sendButton.setOnAction(event -> mainController.handleSendRequest());
         addHeaderButton.setOnAction(event -> mainController.handleAddHeader());
         removeHeaderButton.setOnAction(event -> mainController.handleRemoveHeader());
@@ -216,7 +228,6 @@ public class MainApp extends Application {
             mainController.handleSearchTraffic(newValue);
         });
 
-        // Inicjalizuj kontroler
         Platform.runLater(() -> {
             mainController.initialize();
         });
@@ -231,13 +242,11 @@ public class MainApp extends Application {
 
             log("🌐 Starting proxy server...");
 
-            // Uruchom serwer w osobnym wątku
             new Thread(() -> {
                 try {
                     proxyServer.start();
                     log("✅ Proxy server started successfully on port 8888");
 
-                    // Wyświetl instrukcje konfiguracji
                     Platform.runLater(() -> {
                         showConfigurationInstructions();
                     });
@@ -286,7 +295,6 @@ public class MainApp extends Application {
     private void log(String message) {
         Platform.runLater(() -> {
             logArea.appendText(message + "\n");
-            // Auto-scroll to bottom
             logArea.setScrollTop(Double.MAX_VALUE);
         });
         System.out.println(message);
